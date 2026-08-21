@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { buildHealPrompt } from '../lib/healer/prompt.ts'
 import type { PayloadContract } from '../lib/contracts/types.ts'
 import type { DriftVerdict } from '../lib/sensor/index.ts'
@@ -46,4 +47,20 @@ test('a prior rejection is fed back so the retry is not identical', () => {
   })
   assert.match(prompt, /anchor: 0\/20/)
   assert.match(prompt, /previous attempt/i)
+})
+
+// The CLI's `bdata scraper heal <prompt>` documents a 1000 character maximum.
+// Three real (unsampled) records plus a prior rejection is the worst realistic
+// case -- confirm the assembled prompt still fits.
+test('the prompt stays under the CLI 1000-character limit with three real records and a prior rejection', () => {
+  const records: unknown[] = JSON.parse(
+    readFileSync('docs/evidence/2026-08-21-books-toscrape-baseline.json', 'utf8'),
+  )
+  const prompt = buildHealPrompt({
+    verdict: VERDICT,
+    contract: CONTRACT,
+    sample: records.slice(0, 3),
+    priorRejection: 'anchor: 0/20 known keys retained; regression: pristine failed minItems',
+  })
+  assert.ok(prompt.length <= 1000, `prompt was ${prompt.length} characters`)
 })

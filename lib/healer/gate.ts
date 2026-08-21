@@ -3,13 +3,17 @@ import type { Assertions, ExtractedRecord } from '../contracts/types.ts'
 
 const ANCHOR_MIN_OVERLAP = 0.3
 
-export type GateCheck = { name: 'live' | 'regression' | 'anchor'; pass: boolean; detail: string }
+export type GateCheck = { name: 'live' | 'regression' | 'anchor' | 'resolved'; pass: boolean; detail: string }
 export type GateVerdict = { pass: boolean; checks: GateCheck[] }
 
 export type GateInput = {
   live: { records: ExtractedRecord[]; assertions: Assertions }
   regression: Array<{ label: string; records: ExtractedRecord[]; assertions: Assertions }>
   lastGoodKeys: string[]
+  // The post-repair sensor verdict. Without it the gate cannot tell whether the
+  // fault that triggered the heal is actually gone -- a repair changing nothing
+  // satisfies every assertion and every anchor. Absent means FAIL, not skip.
+  repaired?: { severity: 'none' | 'warn' | 'critical'; signals: string[] }
 }
 
 export function evaluateGate(input: GateInput): GateVerdict {
@@ -45,6 +49,23 @@ export function evaluateGate(input: GateInput): GateVerdict {
       name: 'anchor',
       pass: ratio >= ANCHOR_MIN_OVERLAP,
       detail: `${kept}/${input.lastGoodKeys.length} known keys retained (${(ratio * 100).toFixed(0)}%, need ${ANCHOR_MIN_OVERLAP * 100}%)`,
+    })
+  }
+
+  if (input.repaired === undefined) {
+    checks.push({
+      name: 'resolved',
+      pass: false,
+      detail: 'no post-repair sensor verdict supplied — cannot confirm the fault is gone',
+    })
+  } else {
+    const stillBroken = input.repaired.severity === 'critical'
+    checks.push({
+      name: 'resolved',
+      pass: !stillBroken,
+      detail: stillBroken
+        ? `the original fault is still present: ${input.repaired.signals.join(', ')}`
+        : 'sensor reports no critical drift on the repaired output',
     })
   }
 

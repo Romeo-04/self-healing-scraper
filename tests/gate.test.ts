@@ -22,6 +22,7 @@ test('a genuinely good repair passes every check', () => {
     live: { records: books(20), assertions: ASSERTIONS },
     regression: [{ label: 'pristine', records: books(20), assertions: ASSERTIONS }],
     lastGoodKeys: LAST_GOOD,
+    repaired: { severity: 'none', signals: [] },
   })
   assert.equal(verdict.pass, true)
   assert.ok(verdict.checks.every(c => c.pass))
@@ -79,6 +80,7 @@ test('anchor check is skipped when there is no prior good run', () => {
     live: { records: books(20), assertions: ASSERTIONS },
     regression: [{ label: 'pristine', records: books(20), assertions: ASSERTIONS }],
     lastGoodKeys: [],
+    repaired: { severity: 'none', signals: [] },
   })
   assert.equal(verdict.pass, true)
   assert.match(verdict.checks.find(c => c.name === 'anchor')?.detail ?? '', /no prior/i)
@@ -89,6 +91,31 @@ test('every check runs even after one fails, so the report is complete', () => {
     live: { records: books(1), assertions: ASSERTIONS },
     regression: [{ label: 'pristine', records: books(1), assertions: ASSERTIONS }],
     lastGoodKeys: LAST_GOOD,
+    repaired: { severity: 'none', signals: [] },
   })
-  assert.equal(verdict.checks.length, 3)
+  assert.equal(verdict.checks.length, 4)
+})
+
+test('a critical repaired verdict fails the gate even when live, regression and anchor all pass', () => {
+  const verdict = evaluateGate({
+    live: { records: books(20), assertions: ASSERTIONS },
+    regression: [{ label: 'pristine', records: books(20), assertions: ASSERTIONS }],
+    lastGoodKeys: LAST_GOOD,
+    repaired: { severity: 'critical', signals: ['FIELD_BLEED'] },
+  })
+  assert.equal(verdict.pass, false)
+  const resolved = verdict.checks.find(c => c.name === 'resolved')
+  assert.equal(resolved?.pass, false)
+  assert.ok(verdict.checks.filter(c => c.name !== 'resolved').every(c => c.pass))
+})
+
+test('an omitted repaired verdict fails closed', () => {
+  const verdict = evaluateGate({
+    live: { records: books(20), assertions: ASSERTIONS },
+    regression: [{ label: 'pristine', records: books(20), assertions: ASSERTIONS }],
+    lastGoodKeys: LAST_GOOD,
+  })
+  assert.equal(verdict.pass, false)
+  const resolved = verdict.checks.find(c => c.name === 'resolved')
+  assert.equal(resolved?.pass, false)
 })

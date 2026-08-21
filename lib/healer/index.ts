@@ -6,6 +6,7 @@ import { buildHealPrompt } from './prompt.ts'
 import { evaluateGate } from './gate.ts'
 import type { GateVerdict } from './gate.ts'
 import type { Assertions, ExtractedRecord, PayloadContract } from '../contracts/types.ts'
+import { runSensor } from '../sensor/index.ts'
 import type { DriftVerdict } from '../sensor/index.ts'
 
 const STUDIO_ATTEMPTS = 3
@@ -86,10 +87,13 @@ async function gateFor(
     })
   }
 
+  const verdict = runSensor({ records: live.records, issues: live.issues, contract, history: [] })
+
   return evaluateGate({
     live: { records: live.records, assertions: contract.assertions },
     regression,
     lastGoodKeys: input.lastGoodKeys,
+    repaired: { severity: verdict.severity, signals: verdict.signals.map(s => s.code) },
   })
 }
 
@@ -101,6 +105,11 @@ export async function healTarget(deps: HealDeps, input: HealInput): Promise<Heal
     const prompt = buildHealPrompt({
       verdict: input.verdict, contract: input.contract, sample: input.sample, priorRejection,
     })
+    // Tracks whether `approve` has actually been called for this attempt, so
+    // that a failure after approval never gets misreported as 'none' in the
+    // audit trail -- the approval itself is irreversible and must be recorded
+    // even if everything after it throws.
+    let approved = false
     try {
       const healed = await deps.heal(input.collectorId, prompt, input.url)
 
@@ -108,37 +117,46 @@ export async function healTarget(deps: HealDeps, input: HealInput): Promise<Heal
       // cannot satisfy minItems or the anchor check, so assert only what a
       // sample supports: fields present and typed, and no bleeding.
       const previewRecords = extractPreviewRecords(healed.stdout, input.contract)
-      if (previewRecords !== null) {
-        const sampleAssertions: Assertions = {
-          minItems: 1,
-          fieldFillRate: input.contract.assertions.fieldFillRate,
-        }
-        const previewCheck = evaluateAssertions(previewRecords, sampleAssertions)
-        const bleeding = previewRecords.some(record =>
-          Object.values(record.raw).some(
-            value => typeof value === 'string' && maxInternalRepeat(value) >= 3,
-          ),
-        )
-        if (!previewCheck.pass || bleeding) {
-          // Reject while the proposal is still PENDING. This is the only point
-          // at which a bad proposal can be refused without consequence.
-          await deps.reject(input.collectorId, input.url)
-          const failures = bleeding
-            ? [...previewCheck.failures, 'preview still shows field bleed']
-            : previewCheck.failures
-          attempts.push({
-            source: 'studio', verdict: null, previewFailures: failures, cliAction: 'reject',
-          })
-          priorRejection = `preview rejected: ${failures.join('; ')}`
-          continue
-        }
+      if (previewRecords === null) {
+        // No preview means the only bleed-aware check before an irreversible
+        // action could not run. Fail closed: reject while still pending
+        // rather than proceeding to approval on blind faith.
+        await deps.reject(input.collectorId, input.url)
+        const failures = ['no preview_result in heal output — cannot verify before approving']
+        attempts.push({
+          source: 'studio', verdict: null, previewFailures: failures, cliAction: 'reject',
+        })
+        priorRejection = `preview rejected: ${failures.join('; ')}`
+        continue
       }
-      // previewRecords === null means no preview was available. Do not fail
-      // closed on that — proceed to the full gate, which is Stage 2 anyway.
+      const sampleAssertions: Assertions = {
+        minItems: 1,
+        fieldFillRate: input.contract.assertions.fieldFillRate,
+      }
+      const previewCheck = evaluateAssertions(previewRecords, sampleAssertions)
+      const bleeding = previewRecords.some(record =>
+        Object.values(record.raw).some(
+          value => typeof value === 'string' && maxInternalRepeat(value) >= 3,
+        ),
+      )
+      if (!previewCheck.pass || bleeding) {
+        // Reject while the proposal is still PENDING. This is the only point
+        // at which a bad proposal can be refused without consequence.
+        await deps.reject(input.collectorId, input.url)
+        const failures = bleeding
+          ? [...previewCheck.failures, 'preview still shows field bleed']
+          : previewCheck.failures
+        attempts.push({
+          source: 'studio', verdict: null, previewFailures: failures, cliAction: 'reject',
+        })
+        priorRejection = `preview rejected: ${failures.join('; ')}`
+        continue
+      }
 
       // Stage 2 — post-approval, the full gate. There is no revert once
       // approved, so a gate failure here is recorded, never rejected.
       await deps.approve(input.collectorId, input.url)
+      approved = true
       const verdict = await gateFor(deps, input, input.contract)
 
       if (verdict.pass) {
@@ -153,7 +171,18 @@ export async function healTarget(deps: HealDeps, input: HealInput): Promise<Heal
 
       attempts.push({ source: 'studio', verdict, previewFailures: [], cliAction: 'approve' })
       priorRejection = verdict.checks.filter(c => !c.pass).map(c => `${c.name}: ${c.detail}`).join('; ')
-    } catch {
+    } catch (error) {
+      // An approval may already have happened (e.g. runCollector timing out
+      // during the post-approval gate). The database must never be able to
+      // deny that an irreversible approval occurred, so the attempt is
+      // recorded here too, before returning failed.
+      const message = error instanceof Error ? error.message : String(error)
+      attempts.push({
+        source: 'studio',
+        verdict: null,
+        previewFailures: [message],
+        cliAction: approved ? 'approve' : 'none',
+      })
       return { status: 'failed', source: 'none', attempts, contract: input.contract }
     }
   }
