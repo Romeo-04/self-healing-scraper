@@ -10,5 +10,5 @@
     "pipeline": "node --env-file=.env.local scripts/pipeline.ts"
   },
   "dependencies": { "openai": "^4.104.0" },
-  "devDependencies": { "typescript": "^5.7.0", "@types/node": "^24.0.0" }
+  "devDependencies": { "typescript": "^5.8.0", "@types/node": "^24.0.0" }
 }
