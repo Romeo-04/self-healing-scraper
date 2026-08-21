@@ -26,6 +26,17 @@ export type DriftVerdict = {
 const BLEED_THRESHOLD = 3
 const MISSING_SHARE = 0.2
 const FILL_DROP_POINTS = 0.4
+const MAX_FIELD_CHARS = 300
+
+function boundRaw(raw: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    out[key] = typeof value === 'string' && value.length > MAX_FIELD_CHARS
+      ? `${value.slice(0, MAX_FIELD_CHARS)}…(${value.length} chars)`
+      : value
+  }
+  return out
+}
 
 export function runSensor(input: SensorInput): DriftVerdict {
   const { records, issues, contract, history } = input
@@ -108,7 +119,7 @@ export function runSensor(input: SensorInput): DriftVerdict {
       recordCount: records.length,
       issueCount: issues.length,
       assertionFailures: assertionResult.failures,
-      sampleRecords: records.slice(0, 3).map(r => r.raw),
+      sampleRecords: records.slice(0, 3).map(r => boundRaw(r.raw)),
     },
   }
 }
