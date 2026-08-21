@@ -70,6 +70,17 @@ export async function proposeContract(args: {
   const parsed = JSON.parse(content) as { fields: Array<Record<string, unknown>> }
   const fields = parsed.fields.map(stripNulls) as unknown as PayloadContract['fields']
 
+  // The schema does not require every field name, and the contract's
+  // fieldFillRate assertion covers only a subset (title, price, url) -- so a
+  // candidate that simply deletes a field like `availability` would otherwise
+  // sail through the gate unnoticed. Verify nothing present in the original
+  // contract went missing.
+  const proposedNames = new Set(fields.map(f => f.name))
+  const droppedNames = args.contract.fields.map(f => f.name).filter(name => !proposedNames.has(name))
+  if (droppedNames.length > 0) {
+    throw new Error(`fallback repair dropped field(s): ${droppedNames.join(', ')}`)
+  }
+
   return {
     ...args.contract,
     version: args.contract.version + 1,
