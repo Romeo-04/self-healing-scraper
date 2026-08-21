@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readWithFallbacks } from '../lib/extract/path.ts'
 import { deriveKey } from '../lib/extract/key.ts'
 import { applyContract } from '../lib/extract/index.ts'
+import { toNumber } from '../lib/extract/transforms.ts'
 import type { PayloadContract } from '../lib/contracts/types.ts'
 
 const CONTRACT: PayloadContract = {
@@ -82,4 +83,29 @@ test('parseStock reads out-of-stock text as false', () => {
   const payload = [{ title: 'X', price: { value: 1 }, availability: 'Out of stock', product_url: 'https://x.test/a' }]
   const { records } = applyContract(payload, CONTRACT)
   assert.equal(records[0]?.inStock, false)
+})
+
+test('toNumber reads a lone three-digit group as thousands, not a decimal', () => {
+  assert.equal(toNumber('1,299'), 1299)
+  assert.equal(toNumber('1.299'), 1299)
+})
+
+test('toNumber reads a lone two-digit group as a decimal', () => {
+  assert.equal(toNumber('1,29'), 1.29)
+  assert.equal(toNumber('52.15'), 52.15)
+})
+
+test('toNumber handles repeated grouping separators', () => {
+  assert.equal(toNumber('1,234,567'), 1234567)
+})
+
+test('toNumber uses the later separator as the decimal when both appear', () => {
+  assert.equal(toNumber('1,299.00'), 1299)
+  assert.equal(toNumber('1.299,00'), 1299)
+})
+
+test('toNumber strips currency symbols and rejects non-numeric text', () => {
+  assert.equal(toNumber('£52.15'), 52.15)
+  assert.equal(toNumber('about ten pounds'), undefined)
+  assert.equal(toNumber(''), undefined)
 })
