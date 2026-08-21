@@ -10,13 +10,21 @@
     "typecheck": "tsc --noEmit",
     "seed": "node --env-file=.env.local scripts/seed.ts",
     "pipeline": "node --env-file=.env.local scripts/pipeline.ts",
-    "demo:gate": "node --env-file=.env.local scripts/demo-gate.ts"
+    "demo:gate": "node --env-file=.env.local scripts/demo-gate.ts",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
   },
   "dependencies": {
-    "openai": "^4.104.0"
+    "next": "^15.5.23",
+    "openai": "^4.104.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "typescript": "^5.8.0"
   }
 }
