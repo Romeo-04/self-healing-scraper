@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { healTarget } from '../lib/healer/index.ts'
 import type { HealDeps } from '../lib/healer/index.ts'
 import type { PayloadContract } from '../lib/contracts/types.ts'
-import type { DriftVerdict } from '../lib/sensor/index.ts'
+import type { DriftVerdict, HistoryEntry } from '../lib/sensor/index.ts'
 
 const CONTRACT: PayloadContract = {
   version: 1, targetId: 'books-toscrape',
@@ -62,6 +62,7 @@ const input = {
   collectorId: 'c_test', url: 'https://books.toscrape.com',
   contract: CONTRACT, verdict: VERDICT, sample: [], lastGoodKeys: LAST_GOOD,
   fixtures: [{ label: 'pristine', url: 'https://books.toscrape.com', assertions: CONTRACT.assertions }],
+  history: [] as HistoryEntry[],
 }
 
 test('a passing studio proposal is approved and promoted', async () => {
@@ -185,6 +186,20 @@ test('a clean preview proceeds to approval and the full gate', async () => {
   const outcome = await healTarget(d, input)
   assert.ok(d.calls.includes('approve'))
   assert.equal(outcome.status, 'promoted')
+})
+
+// The post-repair sensor check must be able to catch a fault that is only
+// visible relative to history: 16 records clears the contract's absolute
+// minItems floor (10) but is well under half of the rolling median (40) the
+// history shows. If gateFor ever goes back to hardcoding `history: []`, the
+// history-relative branch of ITEM_COUNT_COLLAPSE can never fire and this
+// "repair" (which changes nothing) would score severity 'none' and promote.
+test('a record count that clears the absolute floor but collapses against history blocks promotion', async () => {
+  const history: HistoryEntry[] = Array.from({ length: 5 }, () => ({ recordCount: 40, fillRates: {} }))
+  const collapsedPayload = goodPayload().slice(0, 16)
+  const d = deps({ runCollector: async () => collapsedPayload })
+  const outcome = await healTarget(d, { ...input, history })
+  assert.notEqual(outcome.status, 'promoted')
 })
 
 test('a gate failure after approval does not attempt a reject', async () => {
