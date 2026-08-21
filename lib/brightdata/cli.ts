@@ -1,12 +1,34 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { optionalEnv } from '../env.ts'
+import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 const run = promisify(execFile)
 
-// On Windows, execFile without a shell cannot launch npx (a .cmd shim).
-const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-const BASE = ['-p', '@brightdata/cli', 'bdata']
-const TIMEOUT_MS = 300_000
+// On Windows, npx ships as a .cmd shim. Node hardened child_process against
+// spawning .bat/.cmd files directly (the CVE-2024-27980 fix): doing so now
+// throws `spawn EINVAL` unless shell:true is passed — and shell:true would
+// require manually shell-escaping every argument, including free-form heal
+// prompts, to stay safe. Instead resolve npx's own JS entry point (shipped
+// beside node.exe) and run it directly through node — no shell, no escaping,
+// and no CVE-restricted file type involved.
+function resolveNpx(): { command: string; prefixArgs: string[] } {
+  if (process.platform === 'win32') {
+    const npxCliJs = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npx-cli.js')
+    if (existsSync(npxCliJs)) return { command: process.execPath, prefixArgs: [npxCliJs] }
+  }
+  return { command: process.platform === 'win32' ? 'npx.cmd' : 'npx', prefixArgs: [] }
+}
+
+const { command: NPX, prefixArgs: NPX_PREFIX_ARGS } = resolveNpx()
+const BASE = [...NPX_PREFIX_ARGS, '-p', '@brightdata/cli', 'bdata']
+// The CLI falls back to batch mode when the account's realtime page quota is
+// exhausted, and batch polls up to 3600 times. Five minutes killed a run at
+// poll 28. Default generously; override per-environment if needed.
+const TIMEOUT_MS = Number(optionalEnv('BDATA_TIMEOUT_MS', '1800000'))
+// Any c_-prefixed collector id must never reach a log, transcript, or error.
+const COLLECTOR_ID_PATTERN = /c_[a-z0-9]{8,}/gi
 const MAX_BUFFER = 32 * 1024 * 1024
 
 export function extractJson(stdout: string): unknown {
@@ -27,9 +49,22 @@ export function extractJson(stdout: string): unknown {
   throw new Error(`no JSON found in CLI output: ${stdout.slice(0, 200)}`)
 }
 
+function redact(text: string): string {
+  return text.replace(COLLECTOR_ID_PATTERN, '$COLLECTOR_ID')
+}
+
 async function bdata(args: string[]): Promise<string> {
-  const { stdout } = await run(NPX, [...BASE, ...args], { timeout: TIMEOUT_MS, maxBuffer: MAX_BUFFER })
-  return stdout
+  try {
+    const { stdout } = await run(NPX, [...BASE, ...args], { timeout: TIMEOUT_MS, maxBuffer: MAX_BUFFER })
+    return stdout
+  } catch (error) {
+    // execFile attaches the entire command line to the error, collector id
+    // included. Re-throw without it so a logged failure cannot leak credentials.
+    const failure = error as { code?: string; killed?: boolean; stderr?: string }
+    const cause = failure.killed === true ? `timed out after ${TIMEOUT_MS}ms` : (failure.code ?? 'failed')
+    const tail = redact((failure.stderr ?? '').trim()).slice(-300)
+    throw new Error(`bdata ${args.slice(0, 2).join(' ')} ${cause}: ${tail}`)
+  }
 }
 
 export async function runCollector(collectorId: string, url: string): Promise<unknown[]> {

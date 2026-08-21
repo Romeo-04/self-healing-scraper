@@ -137,3 +137,32 @@ test('sensor evidence truncates oversized string fields', () => {
   const size = JSON.stringify(verdict.evidence).length
   assert.ok(size < 10_000, `evidence should be bounded, got ${size} bytes`)
 })
+
+test('FIELD_BLEED does not fire on a repeated single word', () => {
+  assert.ok(maxInternalRepeat('Ha Ha Ha Ha Ha Ha') < 3)
+  assert.ok(maxInternalRepeat('Ha Ha Ha Ha Ha Ha Ha Ha') < 3)
+  assert.ok(maxInternalRepeat('Na Na Na Na Na Na Na Na Batman') < 3)
+  assert.ok(maxInternalRepeat('Wow wow wow wow wow wow this is amazing') < 3)
+})
+
+test('sensor evidence is bounded even when the bloat is nested', () => {
+  const payload = Array.from({ length: 20 }, (_, i) => ({
+    title: `Book ${i}`,
+    price: { value: 10 + i },
+    availability: 'In stock',
+    product_url: `https://books.toscrape.com/catalogue/book-${i}/index.html`,
+    nested: { blob: 'w'.repeat(200_000) },
+  }))
+  const { records, issues } = applyContract(payload, CONTRACT)
+  const verdict = runSensor({ records, issues, contract: CONTRACT, history: [] })
+  const size = JSON.stringify(verdict.evidence).length
+  assert.ok(size < 5_000, `evidence should be bounded, got ${size} bytes`)
+})
+
+test('maxInternalRepeat stays fast on a pathological value', () => {
+  const huge = 'in stock '.repeat(5000)
+  const started = process.hrtime.bigint()
+  maxInternalRepeat(huge)
+  const ms = Number(process.hrtime.bigint() - started) / 1e6
+  assert.ok(ms < 500, `expected under 500ms, took ${ms}ms`)
+})
