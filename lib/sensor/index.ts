@@ -26,16 +26,22 @@ export type DriftVerdict = {
 const BLEED_THRESHOLD = 3
 const MISSING_SHARE = 0.2
 const FILL_DROP_POINTS = 0.4
-const MAX_FIELD_CHARS = 300
+const MAX_EVIDENCE_CHARS = 2000
 
-function boundRaw(raw: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(raw)) {
-    out[key] = typeof value === 'string' && value.length > MAX_FIELD_CHARS
-      ? `${value.slice(0, MAX_FIELD_CHARS)}…(${value.length} chars)`
-      : value
+function boundEvidence(evidence: Record<string, unknown>): Record<string, unknown> {
+  const json = JSON.stringify(evidence)
+  if (json !== undefined && json.length <= MAX_EVIDENCE_CHARS) return evidence
+  // Hard cap regardless of nesting. A per-string-field check bounded nothing:
+  // it skipped nested objects and arrays entirely (a 3.8MB blob passed through)
+  // and scaled with field count even for bare strings.
+  const serialized = json ?? ''
+  return {
+    recordCount: evidence.recordCount,
+    issueCount: evidence.issueCount,
+    assertionFailures: evidence.assertionFailures,
+    sampleRecordsTruncated: serialized.slice(0, MAX_EVIDENCE_CHARS) + '…',
+    truncatedFromChars: serialized.length,
   }
-  return out
 }
 
 export function runSensor(input: SensorInput): DriftVerdict {
@@ -115,11 +121,11 @@ export function runSensor(input: SensorInput): DriftVerdict {
   return {
     severity,
     signals,
-    evidence: {
+    evidence: boundEvidence({
       recordCount: records.length,
       issueCount: issues.length,
       assertionFailures: assertionResult.failures,
-      sampleRecords: records.slice(0, 3).map(r => boundRaw(r.raw)),
-    },
+      sampleRecords: records.slice(0, 3).map(r => r.raw),
+    }),
   }
 }
