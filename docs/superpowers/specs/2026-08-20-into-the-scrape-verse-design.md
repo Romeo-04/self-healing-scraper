@@ -59,7 +59,7 @@ Each module answers: what it does, how you call it, what it depends on. `sensor/
 ### Data flow
 
 ```
-trigger -> Scraper Studio collector -> snapshot (parsed JSON [+ captured HTML])
+trigger -> Scraper Studio collector -> snapshot (parsed JSON; no HTML)
         -> extract (apply active contract) -> records
         -> sensor -> ok    -> store, feed updates
                   -> drift -> bdata scraper heal (no --auto-approve) -> proposal
@@ -89,7 +89,7 @@ That approve/reject seam is where this project lives:
 
 > **Bright Data proposes the repair. Our validation gate decides whether it ships.**
 
-This is strictly better than the design's original plan of running a parallel repair system beside theirs. Scraper Studio integration and reliability stop being two competing mechanisms and become the same mechanism — we are not wrapping their tool, we are supplying the judgement it lacks. An unattended `--auto-approve` loop trusts a model's own opinion of its work; ours trusts fixtures and anchors.
+This is strictly better than the design's original plan of running a parallel repair system beside theirs. Scraper Studio integration and reliability stop being two competing mechanisms and become the same mechanism — we are not wrapping their tool, we are supplying the judgement it lacks. An unattended `--auto-approve` loop trusts a model's own opinion of its work; ours trusts assertions, fixtures, and anchors.
 
 Our extraction contract keeps its central role, now with two jobs:
 
@@ -113,11 +113,11 @@ SQLite via `node:sqlite`, built into Node 24. No native build, no Windows compil
 |---|---|---|
 | `targets` | One per scraped site | `id`, `name`, `url`, `collector_id`, `active_contract_version` |
 | `contracts` | Versioned extraction logic | `target_id`, `version`, `spec_json`, `created_by`, `parent_version`, `note` |
-| `runs` | One collector execution | `target_id`, `contract_version`, `snapshot_id`, `status`, `record_count`, `raw_payload`, `captured_html` |
+| `runs` | One collector execution | `target_id`, `contract_version`, `snapshot_id`, `status`, `record_count`, `raw_payload` |
 | `records` | Extracted products | `run_id`, `key`, `title`, `price`, `currency`, `in_stock`, `url` |
 | `drift_events` | Sensor output | `run_id`, `severity`, `signals_json`, `evidence_json` |
 | `heal_attempts` | Repair audit trail | `drift_event_id`, `from_version`, `to_version`, `status`, `source`, `heal_prompt`, `proposal_json`, `validation_report_json`, `cli_action` |
-| `fixtures` | Known-good HTML for regression checks | `target_id`, `label`, `html`, `expected_assertions_json` |
+| `fixtures` | Known-good expectations per URL, for regression checks | `target_id`, `label`, `url`, `expected_assertions_json`, `golden_keys_json`, `golden_field_stats_json` |
 | `mirror_state` | Singleton: which mutation is live | `profile`, `applied_at` |
 
 `contracts.created_by` is `seed`, `studio` (a Bright Data heal proposal we approved), or `fallback` (our own repair). `heal_attempts.source` is `studio` or `fallback`, and `heal_attempts.cli_action` records `approve`, `reject`, or `none` so the audit trail states exactly what was done to the live collector.
@@ -128,17 +128,22 @@ SQLite via `node:sqlite`, built into Node 24. No native build, no Windows compil
 
 ## 4. The extraction contract
 
+**Revised 2026-08-21 after seeing real collector output.** The original draft assumed the contract held CSS selectors applied to HTML. It does not, because Scraper Studio returns parsed JSON and no HTML (section 13, question 2). The real division is cleaner:
+
+- **Bright Data owns HTML to JSON.** Selectors, interaction, pagination, and the repair of all three. Their `heal` command edits their code.
+- **We own JSON to records, plus judgement.** Our contract maps their payload shape onto our records and defines what "working" means.
+
+So the contract is a **payload contract**, not a selector contract:
+
 ```ts
-type ExtractionContract = {
+type PayloadContract = {
   version: number
   targetId: string
-  itemSelector: string              // container for one product
   fields: Array<{
-    name: 'title' | 'price' | 'availability' | 'url'
-    selector: string                // relative to itemSelector
-    source: 'text' | 'attr'
-    attr?: string                   // when source is 'attr'
-    transform?: 'trim' | 'parsePrice' | 'parseStock'
+    name: 'title' | 'price' | 'currency' | 'availability' | 'url'
+    path: string                    // JSON path into a payload item, e.g. 'price.value'
+    fallbackPaths?: string[]        // tried in order; tolerates benign renames
+    transform?: 'trim' | 'parseStock' | 'toNumber'
     type: 'string' | 'number' | 'boolean' | 'url'
     required: boolean
   }>
@@ -146,11 +151,14 @@ type ExtractionContract = {
     minItems: number
     fieldFillRate: Record<string, number>   // e.g. { price: 0.9, title: 1.0 }
     priceRange?: [number, number]
+    maxRepeatRatio?: Record<string, number> // see below
   }
 }
 ```
 
-`assertions` exist so the validation gate has an objective, per-target definition of "this contract works" that does not depend on the model's own opinion of its output.
+Real output from collector `c_mt2g81n4o5kz5bgla` confirms the shape: `title`, `price: { value, currency, symbol }`, `availability`, `product_url`, `product_page_url`. Hence `path` reaching `price.value`, and `fallbackPaths` covering the redundant `product_url` / `product_page_url` pair.
+
+`assertions` exist so the validation gate has an objective, per-target definition of "this contract works" that does not depend on any model's opinion of its own output. `maxRepeatRatio` is the newest one and it came directly from a real defect — see section 5.
 
 ## 5. Drift detection — signals
 
@@ -163,24 +171,34 @@ The sensor runs on every completed run and emits zero or more signals, each with
 3. `ITEM_COUNT_COLLAPSE` — record count below `minItems`, or below 50% of the rolling median.
 4. `TYPE_VIOLATION` — value present but fails its declared type or transform, for example `1.299,00 EUR` under a dot-decimal price parser.
 
-**Early-warning signals — severity `warn`, logged only. Designed, then cut on 2026-08-21 for time. Documented here because they are the natural next increment, not because they ship:**
+5. `FIELD_BLEED` — a field's values repeat across records beyond `maxRepeatRatio`, or its distinct-value count collapses toward one while item count stays healthy. Severity `critical`.
 
-5. `DISTRIBUTION_SHIFT` — a numeric field's median moves by more than 10x, or its variance collapses to zero. Every row identical usually means a selector now points at a static node.
-6. `STRUCTURAL_HASH_CHANGE` — the DOM-path skeleton hash of the item containers changed while the data still parses cleanly. Nothing is broken yet; something moved.
+**Signal 5 was un-cut on 2026-08-21, because the first real collector run produced exactly this defect.** Bright Data's auto-generated scraper returned, for every book:
 
-Signal 6 is what would make this an ops tool rather than an error handler, since it can flag an upcoming break before any data is lost. It is the first thing to build after the deadline.
+```
+"availability": "In stock (19 available) In stock In stock In stock In stock In stock In stock"
+```
 
-**Four signals ship.** The `severity` column and the warn/critical split stay in the schema, so adding signals 5 and 6 later is additive rather than structural.
+The trailing repeats vary in count between records, so the selector is sweeping a whole region rather than each item's own availability node. Every value is malformed, and — critically — **no other signal catches it.** The field is present, non-null, string-typed, and the item count is fine. Signals 1 through 4 all pass. Only "these values repeat when they should vary" sees it.
+
+That is worth more than a synthetic demo: it is an unstaged defect, in a real generated scraper, found by our sensor on the first run. Section 11's demo leads with it.
+
+**Cut, and not for time:**
+
+6. `STRUCTURAL_HASH_CHANGE` — hashing the DOM-path skeleton of item containers. **Infeasible, not deferred.** It needs HTML, and the collector returns none (section 13). Recording it here so the reason is on the record rather than rediscovered later.
+
+**Five signals ship.** The `severity` column and the warn/critical split stay in the schema regardless.
 
 ## 6. The heal loop
 
 Triggered only by a `critical` drift event.
 
-1. **Gather evidence** — failing signals, a sample of failing records, the last known-good contract, and the captured payload. Where HTML is available it is trimmed to the item-container region, scripts and styles stripped, capped at roughly 40k characters, sampling the first N containers so structure survives truncation.
+1. **Gather evidence** — failing signals, a sample of failing records, the last known-good contract, and the raw collector payload. There is no HTML to trim (section 13): the evidence is the malformed JSON itself, which is what Bright Data's `heal` needs anyway, since it is repairing its own code and can re-fetch the page for itself.
 2. **Ask Bright Data to heal.** Run `bdata scraper heal <collector_id> "<prompt>" --url <target>` **without** `--auto-approve`. The prompt is generated from the drift evidence, not hand-written: which fields broke, what they used to yield, what they yield now. Turning sensor evidence into a plain-language repair prompt is a real piece of engineering and lives in `lib/healer/prompt.ts`.
 3. **Validation gate** — run the proposal (see "where the gate sits" in section 2) and require all three of:
-   - **Live check.** Applied to the failing run's HTML, it satisfies every assertion.
-   - **Regression check.** Applied to every stored fixture, it still satisfies that fixture's assertions. A fix that repairs today's layout but breaks last week's is rejected.
+   - **Live check.** Run the healed collector against the failing target URL. Every assertion must pass.
+   - **Regression check.** Run it against the whole fixture URL set — the mirror in each surviving mutation profile, plus `books.toscrape.com`. Every fixture's assertions must pass. A fix that repairs today's layout but breaks a layout that worked yesterday is rejected.
+     *Revised 2026-08-21:* originally this replayed stored HTML through the candidate contract. With no HTML available, it instead re-runs the healed collector across several known URLs and checks each against its recorded expectations. This costs real collector calls, but it tests the actual repaired scraper rather than a local imitation of it — a stronger check than the one it replaces.
    - **Anchor check.** At least 30% of the record keys from the last good run are still present. This is what stops the model from healing onto the wrong container — a related-products carousel parses perfectly and is completely wrong.
 4. **Outcome:**
    - Pass: `bdata scraper approve <collector_id>`. Write contract `v+1` recording what changed, re-extract, mark the run `healed`.
@@ -293,9 +311,18 @@ Cut on 2026-08-21 when the window shrank to ~48 hours: the `lazy-rows` and `chao
 
 ### Open empirical questions
 
-Both are day-1, first-hour work, because either can force a redesign and neither is answerable from the docs.
+1. **Can the CLI run a pending, unapproved heal proposal?** — **still open.** Decides whether the gate sits before or after `approve` (section 2). If it cannot, we take verify-and-rollback and describe it honestly. First task of the build.
 
-1. **Can the CLI run a pending, unapproved heal proposal?** Decides whether the gate sits before or after `approve` (section 2). If it cannot, we take verify-and-rollback and describe it honestly.
-2. **Can a collector return raw page HTML alongside parsed fields?** The gate's regression check compares proposals against stored fixtures, which needs DOM. The generated collector ran an `output_schema_generator` step, so its schema is currently whatever Bright Data inferred — unknown whether HTML is included. If it cannot, the fallback is a second collector whose only job is returning the raw page.
+2. **Can a collector return raw page HTML alongside parsed fields?** — **answered 2026-08-21: no.** A real run of `c_mt2g81n4o5kz5bgla` returned only parsed JSON (`title`, `price: { value, currency, symbol }`, `availability`, `product_url`, `product_page_url`) with no HTML field and no markup anywhere in the payload.
 
-If question 2 resolves badly, the fixture-based regression check degrades to comparing *parsed output* across runs rather than re-parsing stored HTML. Weaker, still real, and the anchor check is unaffected.
+   Consequences, all absorbed into the design rather than left as debt:
+   - The contract became a **payload contract** over JSON paths instead of a selector contract over DOM (section 4). This is a more honest split: selectors are Bright Data's to own and repair.
+   - The regression check re-runs the healed collector across several known URLs instead of replaying stored HTML (section 6). More expensive, and a stronger test.
+   - Sensor signal 6 is **infeasible**, not deferred (section 5).
+   - `runs.captured_html` deleted; `fixtures` now stores per-URL expectations rather than markup (section 3).
+
+   A second raw-page collector was considered and rejected. It would double collector calls and reintroduce a parallel extraction path — exactly the design we deliberately abandoned when the CLI's `heal`/`approve` seam turned out to be real.
+
+### Found while verifying: a real defect worth building around
+
+The first live run exposed a genuine bug in Bright Data's auto-generated scraper — `availability` values sweep a whole page region instead of each item's own node, so every record carries a malformed, near-repeating string. Signals 1 through 4 all pass on it. This directly caused signal 5 (`FIELD_BLEED`) to be un-cut, and it gives the demo an unstaged failure found by our own sensor on the very first run. That is worth more than any mutation we could stage ourselves.
