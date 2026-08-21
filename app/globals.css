@@ -474,7 +474,6 @@ code,
 .fleet-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--border-strong);
   border-radius: var(--radius-card);
   padding: var(--sp-5);
   display: flex;
@@ -494,12 +493,16 @@ code,
   transform: scale(0.995);
 }
 
+/* The coloured edge appears ONLY on a card that has something to report, so its
+   presence is the signal. A healthy card carries the same uniform border as every
+   other surface. Colour is never the sole channel -- HealthBadge carries an icon
+   and a word alongside it. */
 .fleet-card.state-anomaly {
-  border-left-color: var(--critical);
+  border-left: 2px solid var(--critical);
 }
 
 .fleet-card.state-healing {
-  border-left-color: var(--healing);
+  border-left: 2px solid var(--healing);
   animation: healing-pulse 2.4s ease-in-out infinite;
 }
 
@@ -520,7 +523,7 @@ code,
 }
 
 .fleet-card.state-failed {
-  border-left-color: var(--border-strong);
+  border-left: 2px solid var(--text-faint);
   filter: saturate(0.55);
   opacity: 0.82;
 }
@@ -766,7 +769,6 @@ code,
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--border-strong);
   border-radius: var(--radius-card);
   overflow: hidden;
 }
