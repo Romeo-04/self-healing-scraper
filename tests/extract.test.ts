@@ -127,3 +127,28 @@ test('toNumber keeps negatives intact with and without grouping', () => {
   assert.equal(toNumber('-1,299'), -1299)
   assert.equal(toNumber('-52.15'), -52.15)
 })
+
+test('toNumber refuses a string holding more than one number', () => {
+  assert.equal(toNumber('Save $5 Now $23.99'), undefined)
+  assert.equal(toNumber('was 199 now 99'), undefined)
+  assert.equal(toNumber('2 for $5'), undefined)
+  assert.equal(toNumber('1e5'), undefined)
+})
+
+test('toNumber validates group shape when both separators appear', () => {
+  assert.equal(toNumber('1.2.3,4'), undefined)
+  assert.equal(toNumber('1,2,3.4'), undefined)
+  assert.equal(toNumber('1.000.000,50'), 1000000.5)
+})
+
+test('toNumber honours unicode minus signs and non-breaking spaces', () => {
+  assert.equal(toNumber('\u2212 52.15'), -52.15)
+  assert.equal(toNumber('\u2013 52.15'), -52.15)
+  assert.equal(toNumber('1\u00A0299'), 1299)
+})
+
+test('toNumber still accepts ordinary currency decoration', () => {
+  assert.equal(toNumber('$1,299.99'), 1299.99)
+  assert.equal(toNumber('52.15USD'), 52.15)
+  assert.equal(toNumber('1\u00A0299'), 1299)
+})
