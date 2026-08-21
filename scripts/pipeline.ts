@@ -16,6 +16,7 @@
 // npm run pipeline -- heal-dry
 // CONFIRM_HEAL_LIVE=yes npm run pipeline -- heal-live
 
+import { readFileSync } from 'node:fs'
 import { openDb } from '../lib/db/index.ts'
 import { requireEnv } from '../lib/env.ts'
 import { applyContract } from '../lib/extract/index.ts'
@@ -31,13 +32,13 @@ import type { PayloadContract, Assertions } from '../lib/contracts/types.ts'
 const TARGET_ID = 'books-toscrape'
 const HEARTBEAT_MS = 15_000
 
-type Mode = 'detect' | 'heal-dry' | 'heal-live'
+type Mode = 'detect' | 'heal-dry' | 'heal-live' | 'replay'
 
 function parseMode(argv: string[]): Mode {
   const raw = argv[2]
   if (raw === undefined) return 'detect'
-  if (raw === 'detect' || raw === 'heal-dry' || raw === 'heal-live') return raw
-  console.error(`unknown mode "${raw}" — expected one of: detect, heal-dry, heal-live`)
+  if (raw === 'detect' || raw === 'heal-dry' || raw === 'heal-live' || raw === 'replay') return raw
+  console.error(`unknown mode "${raw}" — expected one of: detect, heal-dry, heal-live, replay`)
   process.exit(1)
 }
 
@@ -45,13 +46,13 @@ const mode = parseMode(process.argv)
 
 console.log('################################################')
 console.log(`# pipeline mode: ${mode.toUpperCase()}`)
-console.log(
-  mode === 'detect'
-    ? '# read-only: triggers a collector run, senses drift, never heals'
-    : mode === 'heal-dry'
-      ? '# heals, then ALWAYS discards the proposal (approve --reject) — reversible, never approves'
-      : '# LIVE HEAL: may call `approve`, which is IRREVERSIBLE — no revert/rollback exists'
-)
+const BANNER: Record<Mode, string> = {
+  replay: '# offline: replays a captured payload, senses drift, makes no network call and never heals',
+  detect: '# read-only: triggers a collector run, senses drift, never heals',
+  'heal-dry': '# heals, then ALWAYS discards the proposal (approve --reject) — reversible, never approves',
+  'heal-live': '# LIVE HEAL: may call `approve`, which is IRREVERSIBLE — no revert/rollback exists',
+}
+console.log(BANNER[mode])
 console.log('################################################\n')
 
 // approving a Bright Data proposal cannot be undone; heal-live requires an
@@ -76,17 +77,36 @@ const contractRow = db.prepare(
 const contract = JSON.parse(contractRow.spec_json) as PayloadContract
 
 console.log(`=== scraping with contract v${contract.version} ===`)
-console.log('(a live collector run can take 30s-4min; printing progress, not timing out early)')
+if (mode !== 'replay') {
+  console.log('(a live collector run can take 30s-4min; printing progress, not timing out early)')
+}
 const startedAt = Date.now()
 const heartbeat = setInterval(() => {
   console.log(`  ... still waiting on the collector (${Math.round((Date.now() - startedAt) / 1000)}s elapsed)`)
 }, HEARTBEAT_MS)
 
 let payload: unknown[]
-try {
-  payload = await runCollector(collectorId, url)
-} finally {
+if (mode === 'replay') {
+  // Replay a captured payload instead of calling the collector. Added because the
+  // account's realtime page quota is exhausted, which forces the CLI into a batch
+  // mode too slow to hold a process open for. The captured file IS real collector
+  // output, so extraction, sensing, and persistence are exercised on genuine data;
+  // only the network fetch is skipped.
   clearInterval(heartbeat)
+  const replayPath = process.argv[3] ?? 'docs/evidence/2026-08-21-books-toscrape-baseline.json'
+  const parsed: unknown = JSON.parse(readFileSync(replayPath, 'utf8'))
+  if (!Array.isArray(parsed)) {
+    console.error(`replay file ${replayPath} does not contain a JSON array`)
+    process.exit(1)
+  }
+  payload = parsed
+  console.log(`replayed ${payload.length} records from ${replayPath}`)
+} else {
+  try {
+    payload = await runCollector(collectorId, url)
+  } finally {
+    clearInterval(heartbeat)
+  }
 }
 console.log(`collector responded after ${Math.round((Date.now() - startedAt) / 1000)}s`)
 
@@ -142,7 +162,7 @@ if (verdict.severity === 'critical') {
   console.log(`updated fixtures.golden_keys_json with ${records.length} key(s) from run ${runId}`)
 }
 
-if (mode === 'detect') {
+if (mode === 'detect' || mode === 'replay') {
   console.log('\n=== detect mode: stopping here (never heals) ===')
   if (verdict.severity === 'critical') {
     console.log('Drift is CRITICAL. Next step would be one of:')
