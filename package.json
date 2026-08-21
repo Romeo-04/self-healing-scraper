@@ -2,13 +2,21 @@
   "name": "self-healing-scraper",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "test": "node --test",
     "typecheck": "tsc --noEmit",
     "seed": "node --env-file=.env.local scripts/seed.ts",
-    "pipeline": "node --env-file=.env.local scripts/pipeline.ts"
+    "pipeline": "node --env-file=.env.local scripts/pipeline.ts",
+    "demo:gate": "node --env-file=.env.local scripts/demo-gate.ts"
   },
-  "dependencies": { "openai": "^4.104.0" },
-  "devDependencies": { "typescript": "^5.8.0", "@types/node": "^24.0.0" }
+  "dependencies": {
+    "openai": "^4.104.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "@types/node": "^24.0.0"
+  }
 }
