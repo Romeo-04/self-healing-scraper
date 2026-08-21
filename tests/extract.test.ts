@@ -152,3 +152,22 @@ test('toNumber still accepts ordinary currency decoration', () => {
   assert.equal(toNumber('52.15USD'), 52.15)
   assert.equal(toNumber('1\u00A0299'), 1299)
 })
+
+test('toNumber refuses a trailing sign rather than dropping it', () => {
+  assert.equal(toNumber('1,299-'), undefined)
+  assert.equal(toNumber('52.15-'), undefined)
+  assert.equal(toNumber('1.299,00-'), undefined)
+})
+
+test('toNumber refuses a percent value and a leading-zero grouping head', () => {
+  assert.equal(toNumber('20%'), undefined)
+  assert.equal(toNumber('52.15%'), undefined)
+  assert.equal(toNumber('0,123'), 0.123)
+  assert.equal(toNumber('00,123'), 0.123)
+})
+
+test('toNumber reads space-grouped thousands with a decimal tail', () => {
+  assert.equal(toNumber('1 299,50'), 1299.5)
+  assert.equal(toNumber('1 299.50'), 1299.5)
+  assert.equal(toNumber('1 234 567'), 1234567)
+})
