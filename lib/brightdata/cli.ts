@@ -1,11 +1,27 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 const run = promisify(execFile)
 
-// On Windows, execFile without a shell cannot launch npx (a .cmd shim).
-const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-const BASE = ['-p', '@brightdata/cli', 'bdata']
+// On Windows, npx ships as a .cmd shim. Node hardened child_process against
+// spawning .bat/.cmd files directly (the CVE-2024-27980 fix): doing so now
+// throws `spawn EINVAL` unless shell:true is passed — and shell:true would
+// require manually shell-escaping every argument, including free-form heal
+// prompts, to stay safe. Instead resolve npx's own JS entry point (shipped
+// beside node.exe) and run it directly through node — no shell, no escaping,
+// and no CVE-restricted file type involved.
+function resolveNpx(): { command: string; prefixArgs: string[] } {
+  if (process.platform === 'win32') {
+    const npxCliJs = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npx-cli.js')
+    if (existsSync(npxCliJs)) return { command: process.execPath, prefixArgs: [npxCliJs] }
+  }
+  return { command: process.platform === 'win32' ? 'npx.cmd' : 'npx', prefixArgs: [] }
+}
+
+const { command: NPX, prefixArgs: NPX_PREFIX_ARGS } = resolveNpx()
+const BASE = [...NPX_PREFIX_ARGS, '-p', '@brightdata/cli', 'bdata']
 const TIMEOUT_MS = 300_000
 const MAX_BUFFER = 32 * 1024 * 1024
 
