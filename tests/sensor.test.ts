@@ -28,7 +28,11 @@ const HEALTHY = Array.from({ length: 20 }, (_, i) => ({
 const noHistory: never[] = []
 
 test('maxInternalRepeat counts a repeated phrase inside one value', () => {
-  assert.equal(maxInternalRepeat('In stock (19 available) In stock In stock In stock'), 4)
+  // 3, not 4: the algorithm counts the longest run of BACK-TO-BACK repeats.
+  // The leading "In stock" is separated from the trailing three by "(19
+  // available)", so it does not chain into that run — same reasoning as the
+  // "In stock (20 available) In stock In stock" case dropping from 3 to 2.
+  assert.equal(maxInternalRepeat('In stock (19 available) In stock In stock In stock'), 3)
 })
 
 test('maxInternalRepeat returns 1 for correct single-phrase output', () => {
@@ -106,4 +110,30 @@ test('expectVaried fires when a must-vary field goes uniform', () => {
   const { records, issues } = applyContract(uniform, CONTRACT)
   const verdict = runSensor({ records, issues, contract: CONTRACT, history: noHistory })
   assert.equal(verdict.severity, 'critical')
+})
+
+test('FIELD_BLEED does not fire on natural phrase repetition in a title', () => {
+  assert.ok(maxInternalRepeat('The Best of the Best of the Best') < 3)
+  assert.ok(maxInternalRepeat('the the the the') < 3)
+  assert.ok(maxInternalRepeat('New York, New York') < 3)
+})
+
+test('FIELD_BLEED fires on back-to-back repetition', () => {
+  assert.ok(maxInternalRepeat('In stock In stock In stock') >= 3)
+  assert.ok(maxInternalRepeat('In stock (19 available) In stock In stock In stock In stock') >= 3)
+})
+
+test('sensor evidence truncates oversized string fields', () => {
+  const long = 'x'.repeat(5000)
+  const payload = Array.from({ length: 20 }, (_, i) => ({
+    title: `Book ${i}`,
+    price: { value: 10 + i },
+    availability: 'In stock',
+    product_url: `https://books.toscrape.com/catalogue/book-${i}/index.html`,
+    description: long,
+  }))
+  const { records, issues } = applyContract(payload, CONTRACT)
+  const verdict = runSensor({ records, issues, contract: CONTRACT, history: [] })
+  const size = JSON.stringify(verdict.evidence).length
+  assert.ok(size < 10_000, `evidence should be bounded, got ${size} bytes`)
 })
