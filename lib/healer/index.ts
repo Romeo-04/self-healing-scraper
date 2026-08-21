@@ -7,7 +7,7 @@ import { evaluateGate } from './gate.ts'
 import type { GateVerdict } from './gate.ts'
 import type { Assertions, ExtractedRecord, PayloadContract } from '../contracts/types.ts'
 import { runSensor } from '../sensor/index.ts'
-import type { DriftVerdict } from '../sensor/index.ts'
+import type { DriftVerdict, HistoryEntry } from '../sensor/index.ts'
 
 const STUDIO_ATTEMPTS = 3
 
@@ -29,6 +29,7 @@ export type HealInput = {
   sample: unknown[]
   lastGoodKeys: string[]
   fixtures: Array<{ label: string; url: string; assertions: Assertions }>
+  history: HistoryEntry[]
 }
 
 // verdict is null when a proposal was refused at the preview stage, before it
@@ -87,7 +88,7 @@ async function gateFor(
     })
   }
 
-  const verdict = runSensor({ records: live.records, issues: live.issues, contract, history: [] })
+  const verdict = runSensor({ records: live.records, issues: live.issues, contract, history: input.history })
 
   return evaluateGate({
     live: { records: live.records, assertions: contract.assertions },

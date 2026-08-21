@@ -24,10 +24,20 @@ import { runSensor } from '../lib/sensor/index.ts'
 import { evaluateAssertions } from '../lib/sensor/assertions.ts'
 import { maxInternalRepeat } from '../lib/sensor/signals.ts'
 import { healTarget, extractPreviewRecords } from '../lib/healer/index.ts'
+import type { HealAttempt } from '../lib/healer/index.ts'
 import { buildHealPrompt } from '../lib/healer/prompt.ts'
 import { proposeContract } from '../lib/healer/fallback.ts'
 import { approveProposal, healCollector, rejectProposal, runCollector } from '../lib/brightdata/cli.ts'
 import type { PayloadContract, Assertions } from '../lib/contracts/types.ts'
+
+// verdict === null means the gate never returned a verdict. If we approved
+// anyway, the change is LIVE and unvalidated -- that must never be recorded as
+// 'rejected' (which implies the change was safely discarded). 'failed' is the
+// honest status for an unvalidated-but-live approval.
+function attemptStatus(attempt: HealAttempt): string {
+  if (attempt.verdict !== null) return attempt.verdict.pass ? 'promoted' : 'rejected'
+  return attempt.cliAction === 'approve' ? 'failed' : 'rejected'
+}
 
 const TARGET_ID = 'books-toscrape'
 const HEARTBEAT_MS = 15_000
@@ -237,6 +247,7 @@ const outcome = await healTarget(
     runCollector, fallbackPropose: proposeContract },
   { collectorId, url, contract, verdict, sample: payload.slice(0, 3),
     lastGoodKeys,
+    history,
     fixtures: [
       { label: 'homepage', url, assertions: contract.assertions },
       { label: 'page-2', url: 'https://books.toscrape.com/catalogue/page-2.html', assertions: contract.assertions },
@@ -261,7 +272,7 @@ for (const attempt of outcome.attempts) {
      (drift_event_id,from_version,to_version,status,source,validation_report_json,cli_action)
      VALUES (?,?,?,?,?,?,?)`
   ).run(driftEventId, contract.version, outcome.contract.version,
-        attempt.verdict !== null && attempt.verdict.pass ? 'promoted' : 'rejected', attempt.source,
+        attemptStatus(attempt), attempt.source,
         JSON.stringify(attempt.verdict ?? { previewFailures: attempt.previewFailures }), attempt.cliAction)
 }
 
