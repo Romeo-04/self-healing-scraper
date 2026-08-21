@@ -3,15 +3,22 @@ export function maxInternalRepeat(value: string): number {
   if (tokens.length < 4) return 1
 
   let best = 1
-  // n starts at 2: single-word repeats are common in ordinary prose and titles
+  // n starts at 2 and the run must be CONSECUTIVE. Sibling-node concatenation
+  // produces back-to-back repeats ("in stock in stock in stock"); ordinary prose
+  // repeats a phrase with other words in between ("the best of the best"), which
+  // is why counting occurrences anywhere gave false positives on real titles.
   const maxN = Math.min(4, Math.floor(tokens.length / 2))
   for (let n = 2; n <= maxN; n++) {
-    const counts = new Map<string, number>()
     for (let i = 0; i + n <= tokens.length; i++) {
       const gram = tokens.slice(i, i + n).join(' ')
-      counts.set(gram, (counts.get(gram) ?? 0) + 1)
+      let run = 1
+      let j = i + n
+      while (j + n <= tokens.length && tokens.slice(j, j + n).join(' ') === gram) {
+        run++
+        j += n
+      }
+      if (run > best) best = run
     }
-    for (const count of counts.values()) if (count > best) best = count
   }
   return best
 }
