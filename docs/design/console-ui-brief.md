@@ -15,7 +15,7 @@ collect — book prices and stock — which is the thing the whole machine exist
 The operator is a developer watching for two moments:
 
 1. **"Something broke."** Which scraper, which field, how badly.
-2. **"Did the fix hold?"** A repair was proposed; three checks ran; it was approved or
+2. **"Did the fix hold?"** A repair was proposed; four checks ran; it was approved or
    rejected. Show them the verdict and the evidence.
 
 Everything else is secondary to those two moments.
@@ -208,7 +208,7 @@ Event types, each with a distinct marker:
 | Run OK | small healthy dot | `books-toscrape · 20 records · contract v2 · 1.4s` |
 | Anomaly detected | red diamond, glitch-in on arrival | signal chips + evidence |
 | Repair requested | magenta node | the plain-language prompt sent to the platform |
-| Gate verdict | three-check block | PASS/FAIL per check with detail |
+| Gate verdict | four-check block | PASS/FAIL per check with detail |
 | Approved | healthy node, "canon" framing | `contract v2 → v3 promoted` |
 | Rejected | amber node — **not** red | `proposal rejected, v2 stays live` |
 | Run failed | grey node | `collector unreachable, 3 attempts` |
@@ -230,12 +230,13 @@ This is the one screen where leaning into the reference is fully earned.
 Appears inline in the timeline and as an expandable detail panel. This component carries
 the product's entire argument, so it deserves the most design attention of anything here.
 
-Three checks, always all three shown, always in this order:
+Four checks, all four always shown, always in this order:
 
 ```
 LIVE        PASS   20 records, all assertions met
-REGRESSION  PASS   1 fixture still passes
-ANCHOR      FAIL   0/20 known keys retained (0%, need 30%)
+REGRESSION  PASS   2 fixtures still pass
+ANCHOR      PASS   20/20 known keys retained (100%, need 30%)
+RESOLVED    FAIL   the original fault is still present: FIELD_BLEED
 ```
 
 - Each check: name (mono, uppercase), verdict pill (PASS/FAIL), detail (mono, muted).
@@ -245,6 +246,47 @@ ANCHOR      FAIL   0/20 known keys retained (0%, need 30%)
 - A rejection banner is **amber and confident**, not red and panicked. Supporting copy
   like *"The gate did its job — contract v2 remains live"* is exactly the right tone.
   The operator should feel protected, not alarmed.
+
+#### The two checks worth designing around
+
+The four checks are not equally interesting, and the layout should reflect that. Two of
+them answer questions a person would not think to ask, and those are the ones that make
+the screen worth looking at.
+
+**`RESOLVED` — did the repair actually fix the thing that broke?**
+
+The example above is the real case, and it is the most instructive state in the entire
+product. Three checks pass. The output is well-formed, plentiful, correctly typed, and
+anchored to the previous run. By every structural measure the repair is fine. And the
+fault is still there.
+
+A repair can produce perfect output and change nothing. `RESOLVED` is the only check that
+notices. When it fails while the other three pass, the UI should make that contrast
+legible rather than burying it in a uniform list — the story is *"everything looks right
+and it still isn't fixed."*
+
+**`ANCHOR` — is this even the same data?**
+
+The inverse case, and equally worth showing:
+
+```
+LIVE        PASS   12 records, all assertions met
+REGRESSION  PASS   2 fixtures still pass
+ANCHOR      FAIL   0/20 known keys retained (0%, need 30%)
+RESOLVED    PASS   sensor reports no critical drift on the repaired output
+```
+
+Twelve flawless records, every assertion met, no drift detected — from entirely the wrong
+part of the page. A related-products carousel parses beautifully. Only key overlap with
+the previous run reveals it.
+
+**Design implication:** a single failing check among passes is the product's most
+important state, and it happens in both directions. Do not treat the four checks as a
+plain list where one red row reads as a minor blemish. The failing row should carry
+enough weight that a viewer immediately understands the passes did not save it.
+
+`LIVE` and `REGRESSION` are the supporting cast — necessary, rarely the interesting
+answer. They can be quieter.
 
 ### 5.4 Contract diff
 
@@ -362,13 +404,16 @@ placeholders, and this is what the screens will actually contain.
 
 **Contract provenance:** `seed` · `studio` · `fallback`
 
-**Gate checks:** `live` · `regression` · `anchor`
+**Gate checks:** `live` · `regression` · `anchor` · `resolved`
 
 **A real signal detail string, for sizing:**
 `availability repeats an internal phrase 7x within a single value`
 
 **A real anchor-check detail:**
 `6/20 known keys retained (30%, need 30%)`
+
+**A real resolved-check detail, and the reason this check exists:**
+`the original fault is still present: FIELD_BLEED`
 
 **The real broken value that started all of this** — one book's availability field,
 which should read simply "In stock":
