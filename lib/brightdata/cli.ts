@@ -31,6 +31,10 @@ const TIMEOUT_MS = Number(optionalEnv('BDATA_TIMEOUT_MS', '1800000'))
 const COLLECTOR_ID_PATTERN = /c_[a-z0-9]{8,}/gi
 const MAX_BUFFER = 32 * 1024 * 1024
 
+function redact(text: string): string {
+  return text.replace(COLLECTOR_ID_PATTERN, '$COLLECTOR_ID')
+}
+
 export function extractJson(stdout: string): unknown {
   const firstArray = stdout.indexOf('[')
   const firstObject = stdout.indexOf('{')
@@ -46,11 +50,9 @@ export function extractJson(stdout: string): unknown {
       }
     }
   }
-  throw new Error(`no JSON found in CLI output: ${stdout.slice(0, 200)}`)
-}
-
-function redact(text: string): string {
-  return text.replace(COLLECTOR_ID_PATTERN, '$COLLECTOR_ID')
+  // The vendor's JSON envelope can contain collector_id and a view_url that
+  // embeds it -- redact before this ever reaches a log, transcript, or error.
+  throw new Error(`no JSON found in CLI output: ${redact(stdout.slice(0, 200))}`)
 }
 
 async function bdata(args: string[]): Promise<string> {

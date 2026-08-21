@@ -220,12 +220,27 @@ if (mode === 'heal-dry') {
 
 // mode === 'heal-live'
 console.log('\n=== heal-live: running the full heal loop (may approve — irreversible) ===')
+
+// The anchor check must compare this run against a run known to be good, never
+// against itself — pull the last confirmed-good key set out of the fixtures
+// row instead of the (possibly drifted) current run. Empty is a legitimate
+// "no prior good run yet" state; never fall back to the current run's keys.
+const goldenKeysRow = db.prepare(
+  `SELECT golden_keys_json FROM fixtures WHERE target_id=? AND label='homepage'`
+).get(TARGET_ID) as { golden_keys_json: string } | undefined
+const lastGoodKeys: string[] = goldenKeysRow === undefined
+  ? []
+  : (JSON.parse(goldenKeysRow.golden_keys_json) as string[])
+
 const outcome = await healTarget(
   { heal: healCollector, approve: approveProposal, reject: rejectProposal,
     runCollector, fallbackPropose: proposeContract },
   { collectorId, url, contract, verdict, sample: payload.slice(0, 3),
-    lastGoodKeys: records.map(r => r.key),
-    fixtures: [{ label: 'homepage', url, assertions: contract.assertions }] },
+    lastGoodKeys,
+    fixtures: [
+      { label: 'homepage', url, assertions: contract.assertions },
+      { label: 'page-2', url: 'https://books.toscrape.com/catalogue/page-2.html', assertions: contract.assertions },
+    ] },
 )
 
 console.log(`\n=== outcome: ${outcome.status} via ${outcome.source} ===`)
