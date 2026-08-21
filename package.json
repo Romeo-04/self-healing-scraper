@@ -1,0 +1,14 @@
+{
+  "name": "self-healing-scraper",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "seed": "node --env-file=.env.local scripts/seed.ts",
+    "pipeline": "node --env-file=.env.local scripts/pipeline.ts"
+  },
+  "dependencies": { "openai": "^4.104.0" },
+  "devDependencies": { "typescript": "^5.7.0", "@types/node": "^24.0.0" }
+}
