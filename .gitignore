@@ -5,3 +5,5 @@ node_modules/
 *.db
 *.db-journal
 .DS_Store
+.superpowers/
+data.db
