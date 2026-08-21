@@ -151,14 +151,18 @@ type PayloadContract = {
     minItems: number
     fieldFillRate: Record<string, number>   // e.g. { price: 0.9, title: 1.0 }
     priceRange?: [number, number]
-    maxRepeatRatio?: Record<string, number> // see below
+    expectVaried?: string[]                 // fields that must not be uniform
   }
 }
 ```
 
-Real output from collector `c_mt2g81n4o5kz5bgla` confirms the shape: `title`, `price: { value, currency, symbol }`, `availability`, `product_url`, `product_page_url`. Hence `path` reaching `price.value`, and `fallbackPaths` covering the redundant `product_url` / `product_page_url` pair.
+Real output from collector `c_mt2g81n4o5kz5bgla` confirms the shape: `title`, `price: { value, currency, symbol }`, `availability`, `product_url`, `product_page_url`. Hence `path` reaching `price.value`.
 
-`assertions` exist so the validation gate has an objective, per-target definition of "this contract works" that does not depend on any model's opinion of its own output. `maxRepeatRatio` is the newest one and it came directly from a real defect — see section 5.
+Measured across a full 20-record run: 20 distinct titles, 20 of 20 prices parsed as GBP numbers between 13.99 and 57.25, and `product_url` identical to `product_page_url` in all 20 records. The URL pair is pure redundancy, which is what `fallbackPaths` is for — either may be dropped by a future heal without breaking extraction.
+
+`assertions` exist so the validation gate has an objective, per-target definition of "this contract works" that does not depend on any model's opinion of its own output.
+
+`expectVaried` replaced an earlier `maxRepeatRatio` after real data showed the latter would flag correct output as broken — section 5 records that correction in full, because it is the best evidence in this document for why the gate exists.
 
 ## 5. Drift detection — signals
 
@@ -171,17 +175,30 @@ The sensor runs on every completed run and emits zero or more signals, each with
 3. `ITEM_COUNT_COLLAPSE` — record count below `minItems`, or below 50% of the rolling median.
 4. `TYPE_VIOLATION` — value present but fails its declared type or transform, for example `1.299,00 EUR` under a dot-decimal price parser.
 
-5. `FIELD_BLEED` — a field's values repeat across records beyond `maxRepeatRatio`, or its distinct-value count collapses toward one while item count stays healthy. Severity `critical`.
+5. `FIELD_BLEED` — a single field **value** contains the same token sequence repeated within itself. Detection: tokenise the value, find its most frequent n-gram, and fire when that n-gram occurs 3 or more times inside one value. Severity `critical`.
 
-**Signal 5 was un-cut on 2026-08-21, because the first real collector run produced exactly this defect.** Bright Data's auto-generated scraper returned, for every book:
+**Signal 5 was un-cut on 2026-08-21, because the first real collector run produced exactly this defect.** Bright Data's auto-generated scraper returned, for a book that is simply in stock:
 
 ```
 "availability": "In stock (19 available) In stock In stock In stock In stock In stock In stock"
+                          |________________ one phrase, repeated 6x ________________|
 ```
 
-The trailing repeats vary in count between records, so the selector is sweeping a whole region rather than each item's own availability node. Every value is malformed, and — critically — **no other signal catches it.** The field is present, non-null, string-typed, and the item count is fine. Signals 1 through 4 all pass. Only "these values repeat when they should vary" sees it.
+The repeat count drifts between records — 7, 6, 5, 3 — because the selector concatenates a varying number of sibling nodes instead of reading each item's own availability. Every value is malformed, and **no other signal catches it**: the field is present, non-null, string-typed, and the item count is correct at 20 of 20. Signals 1 through 4 all pass.
 
-That is worth more than a synthetic demo: it is an unstaged defect, in a real generated scraper, found by our sensor on the first run. Section 11's demo leads with it.
+### Why this signal is defined on values, not across records
+
+The first draft of signal 5 defined bleed as *values repeating across records*, with a `maxRepeatRatio` assertion. Measuring the real payload proved that wrong, and it is worth recording why rather than quietly fixing it.
+
+Every book on `books.toscrape.com` genuinely is in stock. **Correct** output therefore repeats one identical value 20 times out of 20 — a cross-record repeat ratio of 1.0, whereas the broken output scores 0.70 because its garbage happens to vary. The original signal would have flagged correct data, and ranked it as *more* broken than the actual bug. Precisely inverted.
+
+Intra-value self-repetition has no such problem: correct output contains `In stock` exactly once, broken output contains it three to seven times. The defect is inside the value, so that is where the signal looks.
+
+Cross-record uniformity is still meaningful for fields that *must* vary — if every `title` became identical, something is badly wrong. So it survives as an opt-in assertion, `expectVaried`, declared per field and never set on `availability`.
+
+That correction is the clearest argument for the validation gate as a whole: a plausible-sounding rule, checked against real data, turned out to be backwards. Models propose rules like that constantly. Something has to measure them.
+
+Signal 5 also gives the demo an unstaged defect in a real generated scraper, found by our own sensor on the first run. Section 11 leads with it.
 
 **Cut, and not for time:**
 
