@@ -22,18 +22,25 @@ export function toNumber(value: unknown): number | undefined {
       : cleaned.replace(/,/g, '')
   } else if (lastComma >= 0 || lastDot >= 0) {
     const sep = lastComma >= 0 ? ',' : '.'
-    const occurrences = cleaned.split(sep).length - 1
-    const trailing = cleaned.length - cleaned.lastIndexOf(sep) - 1
-    // A lone separator followed by exactly three digits is a thousands
-    // grouping, not a decimal point: "1,299" is 1299, not 1.299. Repeated
-    // separators are always grouping. Guessing wrong in this direction
-    // yields a too-LARGE value, which the contract's priceRange assertion
-    // can catch; the opposite error is silent and uncatchable.
-    const isGrouping = occurrences > 1 || trailing === 3
-    normalised = isGrouping ? cleaned.split(sep).join('') : cleaned.replace(sep, '.')
+    const parts = cleaned.split(sep)
+    // A thousands separator always has digits on BOTH sides: one to three
+    // before the first, and exactly three after every one. Validating the
+    // shape of every group is what stops ".299" being read as 299 and stops
+    // a malformed "1,23,456" being joined into 123456.
+    const isGrouping =
+      /^-?\d{1,3}$/.test(parts[0] ?? '') &&
+      parts.length > 1 &&
+      parts.slice(1).every(part => /^\d{3}$/.test(part))
+    normalised = isGrouping ? parts.join('') : cleaned.replace(sep, '.')
   } else {
     normalised = cleaned
   }
+
+  // Reject anything that is not a clean numeric literal. parseFloat salvages a
+  // prefix -- parseFloat('1.2.3') is 1.2 -- and that salvage is precisely the
+  // silent-corruption mechanism this function exists to prevent. Refusing to
+  // parse surfaces as TYPE_VIOLATION and triggers repair; guessing does not.
+  if (!/^-?(\d+(\.\d+)?|\.\d+)$/.test(normalised)) return undefined
 
   const parsed = Number.parseFloat(normalised)
   return Number.isFinite(parsed) ? parsed : undefined

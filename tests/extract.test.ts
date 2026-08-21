@@ -109,3 +109,21 @@ test('toNumber strips currency symbols and rejects non-numeric text', () => {
   assert.equal(toNumber('about ten pounds'), undefined)
   assert.equal(toNumber(''), undefined)
 })
+
+test('toNumber refuses malformed input instead of salvaging a prefix', () => {
+  assert.equal(toNumber('1.2.3'), undefined)
+  assert.equal(toNumber('1,23,456'), undefined)
+  assert.equal(toNumber('1,299,00'), undefined)
+  assert.equal(toNumber('1,'), undefined)
+  assert.equal(toNumber('1.'), undefined)
+})
+
+test('toNumber reads a leading decimal point as a fraction', () => {
+  assert.equal(toNumber('.299'), 0.299)
+  assert.equal(toNumber('.99'), 0.99)
+})
+
+test('toNumber keeps negatives intact with and without grouping', () => {
+  assert.equal(toNumber('-1,299'), -1299)
+  assert.equal(toNumber('-52.15'), -52.15)
+})
