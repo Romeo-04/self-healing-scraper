@@ -5,11 +5,11 @@ export function trim(value: unknown): string | undefined {
 }
 
 const SIGN_CHARS = /[\u2212\u2012\u2013\u2014]/g
-const SPACE_CHARS = /[\u00A0\u2009\u202F]/g
+const SPACE_CHARS = /[\u00A0\u202F\u2009]/g
 
 function validGroups(groups: string[]): boolean {
   if (groups.length === 1) return /^\d+$/.test(groups[0] ?? '')
-  return /^\d{1,3}$/.test(groups[0] ?? '') && groups.slice(1).every(g => /^\d{3}$/.test(g))
+  return /^[1-9]\d{0,2}$/.test(groups[0] ?? '') && groups.slice(1).every(g => /^\d{3}$/.test(g))
 }
 
 export function toNumber(value: unknown): number | undefined {
@@ -20,22 +20,32 @@ export function toNumber(value: unknown): number | undefined {
 
   // Peel currency decoration off each END only. Decoration may not contain a
   // digit, separator, or sign, so a leading "." survives into the body and a
-  // stray second "-" cannot hide inside it.
-  const lead = /^[^\d.,\-]*/.exec(text)?.[0] ?? ''
+  // stray second "-" cannot hide in it.
+  const lead = /^[^\d.,\-%]*/.exec(text)?.[0] ?? ''
   const afterLead = text.slice(lead.length)
-  const tail = /[^\d.,]*$/.exec(afterLead)?.[0] ?? ''
+  const tail = /[^\d.,\-%]*$/.exec(afterLead)?.[0] ?? ''
   const core = afterLead.slice(0, afterLead.length - tail.length)
 
   // The core must be exactly one signed numeric run. Anything else between the
-  // digits means the string holds more than one number, and refusing is the only
-  // safe answer: salvaging is how "Save $5 Now $23.99" became 523.99.
+  // digits means the string holds more than one number, and refusing is the
+  // only safe answer: salvaging is how "Save $5 Now $23.99" became 523.99.
   if (!/^-?[\d., ]+$/.test(core) || !/\d/.test(core)) return undefined
   const sign = core.startsWith('-') ? -1 : 1
   const body = core.replace(/^-/, '').trim()
 
   // A space inside the body is only ever a thousands separator.
+  // Space-grouped thousands, where the FINAL group may carry the decimal
+  // tail: "1 299,50" is the standard French rendering of 1299.50.
   const spaced = body.split(' ')
-  if (spaced.length > 1 && !validGroups(spaced)) return undefined
+  if (spaced.length > 1) {
+    const head = spaced[0] ?? ''
+    const mid = spaced.slice(1, -1)
+    const last = spaced[spaced.length - 1] ?? ''
+    const ok = /^[1-9]\d{0,2}$/.test(head)
+      && mid.every(g => /^\d{3}$/.test(g))
+      && /^\d{3}([.,]\d+)?$/.test(last)
+    if (!ok) return undefined
+  }
   const despaced = spaced.join('')
 
   const lastComma = despaced.lastIndexOf(',')
@@ -43,9 +53,9 @@ export function toNumber(value: unknown): number | undefined {
   let normalised: string
 
   if (lastComma >= 0 && lastDot >= 0) {
-    // Both separators: the later one is the decimal point, and the earlier must
-    // form valid 3-digit groups. Round 2 only checked this on the single-
-    // separator branch, which let "1.2.3,4" through as 123.4.
+    // Both separators: the later one is the decimal point, and the earlier one
+    // must form valid 3-digit groups. Fix 2 skipped this check on this branch,
+    // which let "1.2.3,4" through as 123.4.
     const dec = lastComma > lastDot ? ',' : '.'
     const grp = dec === ',' ? '.' : ','
     const parts = despaced.split(dec)
@@ -56,7 +66,7 @@ export function toNumber(value: unknown): number | undefined {
   } else if (lastComma >= 0 || lastDot >= 0) {
     const sep = lastComma >= 0 ? ',' : '.'
     const parts = despaced.split(sep)
-    if (parts.length === 2 && /^\d{1,3}$/.test(parts[0] ?? '') && /^\d{3}$/.test(parts[1] ?? '')) {
+    if (parts.length === 2 && /^[1-9]\d{0,2}$/.test(parts[0] ?? '') && /^\d{3}$/.test(parts[1] ?? '')) {
       normalised = parts.join('')
     } else if (parts.length > 2) {
       if (!validGroups(parts)) return undefined
