@@ -122,12 +122,18 @@ matter what state the collector is left in.
 ```bash
 npm install
 cp .env.example .env.local     # then fill in the three values
-npm test                       # 77 tests
+npm test                       # 83 tests
 npm run typecheck
 
 npm run seed
-npm run pipeline               # replay/detect — read-only
+npm run pipeline -- replay     # offline, real captured payload — safest
+npm run demo:gate              # the gate judging three proposals
+npm run dev                    # the console, then open the port it prints
 ```
+
+**Start with `npm run demo:gate`.** It is the whole argument in one command, offline and
+free: three repair proposals judged, including one that satisfies every structural check
+and is refused anyway.
 
 Four modes, and only one of them can approve anything:
 
@@ -139,6 +145,33 @@ Four modes, and only one of them can approve anything:
 | `heal-live` | the full loop; may approve | **no** |
 
 `heal-live` refuses to start without `CONFIRM_HEAL_LIVE=yes`.
+
+## The console
+
+`npm run dev`, then open the port it prints.
+
+| Route | Shows |
+|---|---|
+| `/fleet` | one card per scraper — health badge, contract version, per-field fill-rate bars |
+| `/timeline` | runs, drift events, and gate verdicts in order |
+| `/gate-demo` | the four-check verdict block, including the cases that get refused |
+| `/feed` | the price table and chart — the data the machine exists to serve |
+
+Read-only by construction: it opens the database in read-only mode and has no mutating
+routes, so it cannot trigger a heal or touch the collector. Mission Control from the design
+brief is deliberately not built for that reason.
+
+Two failure modes worth knowing, neither a code bug. If **every route 404s**, a stale Node
+process is squatting the port — `netstat -ano | findstr :3000`, then
+`taskkill /PID <pid> /F`. If a route **500s** with `__webpack_modules__ is not a function`,
+something ran `npm run build` while `npm run dev` was live and overwrote its cache; stop the
+server, delete `.next`, start again.
+
+## Demo
+
+- **`docs/DEMO.md`** — a runbook: three acts, exact commands, expected output, and what to
+  say over each screen. Includes a 60-second cut.
+- **`docs/VIDEO-SCRIPT.md`** — the narration, timed, with delivery notes.
 
 ## Stack
 
