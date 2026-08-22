@@ -4,7 +4,7 @@ import type { DriftVerdict } from '../sensor/index.ts'
 // The CLI's `bdata scraper heal <prompt>` documents a 1000 character maximum.
 // Keep the instructional scaffolding intact and shrink only the sample section
 // -- the part whose size scales with the data -- until the whole prompt fits.
-const SAMPLE_LIMIT = 1
+const SAMPLE_LIMIT = 2
 const SAMPLE_TRUNCATE_CHARS = 200
 const PROMPT_MAX_CHARS = 1000
 
@@ -46,7 +46,31 @@ export function buildHealPrompt(input: {
     ].join('\n')
   }
 
+  // Which raw fields do the signals actually name? Showing those fields' FULL
+  // values beats a truncated dump of the whole record.
+  //
+  // This mattered: truncating the serialised record meant a long title consumed
+  // the character budget before the malformed value appeared, so the evidence was
+  // cut mid-string. A real heal was sent a prompt claiming a phrase repeated 6x
+  // alongside an example showing it twice, in invalid JSON -- and the repair it
+  // produced did not work.
+  const named = contract.fields
+    .map(f => f.name)
+    .filter(name => verdict.signals.some(sig => sig.detail.includes(name)))
+
+  function offendingValues(item: unknown): string[] {
+    if (item === null || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    return named
+      .filter(name => typeof record[name] === 'string')
+      .map(name => `  ${name} = ${JSON.stringify(record[name])}`)
+  }
+
   function truncateSample(item: unknown): string {
+    // Prefer the offending field's complete value; it is the evidence.
+    const offending = offendingValues(item)
+    if (offending.length > 0) return offending.join('\n')
+
     const serialised = JSON.stringify(item)
     return serialised.length > SAMPLE_TRUNCATE_CHARS
       ? `${serialised.slice(0, SAMPLE_TRUNCATE_CHARS)}…`

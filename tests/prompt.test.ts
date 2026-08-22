@@ -64,3 +64,20 @@ test('the prompt stays under the CLI 1000-character limit with three real record
   })
   assert.ok(prompt.length <= 1000, `prompt was ${prompt.length} characters`)
 })
+
+test('prompt shows the offending field value in full, never truncated', () => {
+  const bleeding = 'In stock (19 available) In stock In stock In stock In stock In stock In stock'
+  const longTitled = [{
+    title: 'Our Band Could Be Your Life: Scenes from the American Indie Underground, 1981-1991',
+    price: { value: 57.25, currency: 'GBP', symbol: '£' },
+    availability: bleeding,
+    product_url: 'https://books.toscrape.com/catalogue/our-band_985/index.html',
+  }]
+  const prompt = buildHealPrompt({ verdict: VERDICT, contract: CONTRACT, sample: longTitled })
+
+  // A real heal failed because truncating the whole record let an 84-character
+  // title consume the budget, cutting the malformed value mid-string: the AI was
+  // told a phrase repeated 6x and shown it twice.
+  assert.ok(prompt.includes(bleeding), 'the complete malformed value must survive')
+  assert.ok(prompt.length <= 1000, `prompt must fit the CLI limit, got ${prompt.length}`)
+})
