@@ -6,6 +6,7 @@
 .next/
 .superpowers/
 data.db
+docs/SUBMISSION-ANSWERS.md
 docs/VIDEO-SCRIPT.md
 next-env.d.ts
 node_modules/
