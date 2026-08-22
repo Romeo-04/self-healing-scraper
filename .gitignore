@@ -6,6 +6,7 @@
 .next/
 .superpowers/
 data.db
+docs/VIDEO-SCRIPT.md
 next-env.d.ts
 node_modules/
 tsconfig.tsbuildinfo
