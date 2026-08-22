@@ -1,4 +1,4 @@
-# Into the Scrape-Verse — Console UI Brief
+# Canon Event — Console UI Brief
 
 A design brief for the operator console. Everything here is real: the data shapes, the
 field names, and the example values are taken from live runs of the actual scraper.
@@ -49,7 +49,7 @@ proposal is styled like a crash, the design has failed at its single most import
 
 ## 3. Theme: Spider-Verse, done seriously
 
-The project is called *Into the Scrape-Verse*. Scrapers are **spiders**, target sites are
+The project is called *Canon Event*. Scrapers are **spiders**, target sites are
 **dimensions**, extraction breakage is an **anomaly**, and a repair is a **canon fix**.
 
 The reference is *Into the Spider-Verse*'s print language, not Marvel merchandise:
@@ -164,7 +164,7 @@ Five primary views plus one modal. Persistent left nav, plus a global status str
 
 - **Left nav**, icon + label: Fleet, Timeline, Feed, Contracts, Mission Control. Collapses
   to icons under 1100px.
-- **Wordmark** "INTO THE SCRAPE-VERSE" in display type with a subtle chromatic offset —
+- **Wordmark** "CANON EVENT" in display type with a subtle chromatic offset —
   the one place the effect is unmistakably intentional.
 - **Global status strip** along the top: total spiders, how many healthy, last run time,
   and a live pulse dot. When any scraper is in `healing`, this strip carries the magenta.

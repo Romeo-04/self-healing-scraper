@@ -8,9 +8,9 @@
   "scripts": {
     "test": "node --test",
     "typecheck": "tsc --noEmit",
-    "seed": "node --env-file=.env.local scripts/seed.ts",
-    "pipeline": "node --env-file=.env.local scripts/pipeline.ts",
-    "demo:gate": "node --env-file=.env.local scripts/demo-gate.ts",
+    "seed": "node --env-file-if-exists=.env.local scripts/seed.ts",
+    "pipeline": "node --env-file-if-exists=.env.local scripts/pipeline.ts",
+    "demo:gate": "node --env-file-if-exists=.env.local scripts/demo-gate.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start"

@@ -5,7 +5,7 @@ import { AutoRefresh } from './components/AutoRefresh.tsx'
 import { getGlobalStatus } from './queries.ts'
 import './globals.css'
 
-export const metadata = { title: 'Into the Scrape-Verse' }
+export const metadata = { title: 'Canon Event' }
 export const dynamic = 'force-dynamic'
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <div className="shell">
           <aside className="sidebar">
             <div className="wordmark" data-short="ITSV">
-              <span>INTO THE SCRAPE-VERSE</span>
+              <span>CANON EVENT</span>
             </div>
             <Nav />
           </aside>

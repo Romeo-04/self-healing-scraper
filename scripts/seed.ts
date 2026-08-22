@@ -1,6 +1,6 @@
 // scripts/seed.ts
 import { openDb } from '../lib/db/index.ts'
-import { requireEnv } from '../lib/env.ts'
+import { optionalEnv } from '../lib/env.ts'
 import type { PayloadContract } from '../lib/contracts/types.ts'
 
 const BOOKS_CONTRACT: PayloadContract = {
@@ -26,7 +26,7 @@ const db = openDb('data.db')
 db.prepare(
   `INSERT OR REPLACE INTO targets (id,name,url,collector_id,active_contract_version)
    VALUES (?,?,?,?,?)`
-).run('books-toscrape', 'Books to Scrape', 'https://books.toscrape.com', requireEnv('BRIGHT_DATA_COLLECTOR_ID'), 1)
+).run('books-toscrape', 'Books to Scrape', 'https://books.toscrape.com', optionalEnv('BRIGHT_DATA_COLLECTOR_ID', 'c_unset'), 1)
 
 db.prepare(
   `INSERT OR IGNORE INTO contracts (target_id,version,spec_json,created_by,note)

@@ -1,4 +1,4 @@
-# Into the Scrape-Verse
+# Canon Event
 
 Self-healing scraper ops console built on Bright Data Scraper Studio. Design lives in
 `docs/superpowers/specs/2026-08-20-into-the-scrape-verse-design.md` — read it before

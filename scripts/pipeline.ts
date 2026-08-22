@@ -18,7 +18,7 @@
 
 import { readFileSync } from 'node:fs'
 import { openDb } from '../lib/db/index.ts'
-import { requireEnv } from '../lib/env.ts'
+import { optionalEnv, requireEnv } from '../lib/env.ts'
 import { applyContract } from '../lib/extract/index.ts'
 import { runSensor } from '../lib/sensor/index.ts'
 import { evaluateAssertions } from '../lib/sensor/assertions.ts'
@@ -77,7 +77,11 @@ if (mode === 'heal-live' && process.env.CONFIRM_HEAL_LIVE !== 'yes') {
 }
 
 const db = openDb('data.db')
-const collectorId = requireEnv('BRIGHT_DATA_COLLECTOR_ID')
+// `replay` makes no network call, so it must not demand credentials: a judge should
+// be able to evaluate the whole argument without a Bright Data account.
+const collectorId = mode === 'replay'
+  ? optionalEnv('BRIGHT_DATA_COLLECTOR_ID', 'c_unset')
+  : requireEnv('BRIGHT_DATA_COLLECTOR_ID')
 const url = 'https://books.toscrape.com'
 
 const contractRow = db.prepare(
