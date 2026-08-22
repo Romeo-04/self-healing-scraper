@@ -287,12 +287,25 @@ routes, so it cannot trigger a repair or touch the collector. It also never impo
 | `2026-08-21-books-toscrape-baseline.json` | 20 records from a real collector run |
 | `2026-08-21-cli-proposal-semantics.md` | a real heal, its `awaiting_approval` envelope, and the finding that a pending proposal is invisible to `run` |
 | `2026-08-21-replay-detect-run.md` | the sensor detecting the genuine defect |
-| `2026-08-22-live-heal-dry-run.md` | **a real repair request to Bright Data, judged and then discarded** |
+| `2026-08-22-live-heal-dry-run.md` | a real repair request to Bright Data, judged and then discarded |
+| `2026-08-23-live-heal-live-run.md` | **the full autonomous loop, `approve` fired — and the repair did not work** |
 
-That last one is worth reading. A live `heal-dry` ran: our sensor generated a prompt, Bright
-Data's AI proposed a fix, its preview came back **clean** and passed the gate's pre-approval
-check — and the proposal was discarded anyway, because `heal-dry` never approves. The repair was
-good, the gate agreed it looked good, and we chose not to ship it.
+**Read the last one.** The full loop ran autonomously with `CONFIRM_HEAL_LIVE=yes`: the sensor
+generated a prompt, Bright Data proposed a repair, its `preview_result` came back **clean**, our
+pre-approval check passed it on merit, and `approve` fired with no human involved.
+
+Then the collector was re-run. **The repair had not worked** — 17 of 20 records still bleeding,
+output identical to before.
+
+The proposal's self-reported preview was unrepresentative of what the collector actually
+produces. `--auto-approve` would have shipped that and logged a success. The only check that
+catches it is `resolved`, which re-runs the sensor on **real** post-repair output rather than
+trusting a proposal's description of itself — and on this run it timed out under the account's
+batch-mode quota fallback before it could.
+
+The contract stayed at v1 throughout, so nothing downstream was corrupted and nothing false was
+recorded. That is the design working: it approved, could not verify, and refused to claim
+success.
 
 `docs/DEMO.md` is a runbook for reproducing all of it.
 
@@ -310,8 +323,9 @@ Written here rather than left to be discovered:
   whereas guessing corrupts data silently.
 - **`resolved` cannot catch a history-relative fault with no history.** With an empty history,
   the relative branches of `FILL_RATE_DROP` and `ITEM_COUNT_COLLAPSE` cannot fire.
-- **`heal-live` has never been executed.** Approving is irreversible, so that decision belongs
-  to a human. A live `heal-dry` **has** run — see the evidence table above.
+- **A live `heal-live` ran and did not close the loop.** `approve` fired autonomously, but the
+  post-approval verification timed out under the quota fallback, and a later run showed the
+  repair had not worked. The contract correctly stayed at v1. Full record in the evidence table.
 - **The full live loop has not run uninterrupted in one process.** The account's realtime page
   quota is exhausted, which forces the CLI into a batch mode taking about ten minutes. Each link
   is evidenced separately.

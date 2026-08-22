@@ -105,7 +105,8 @@ let payload: unknown[]
 // `scraper run`, not `scraper heal`, so this is the only way to exercise the live repair
 // path end to end right now. The drift evidence is genuine either way -- the captured
 // payload IS real collector output.
-const replayPayload = mode === 'replay' || (mode === 'heal-dry' && process.argv[3] === 'replay')
+const replayPayload = mode === 'replay'
+  || ((mode === 'heal-dry' || mode === 'heal-live') && process.argv[3] === 'replay')
 
 if (replayPayload) {
   // Replay a captured payload instead of calling the collector. Added because the
