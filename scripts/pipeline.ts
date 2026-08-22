@@ -265,7 +265,16 @@ const outcome = await healTarget(
     history,
     fixtures: [
       { label: 'homepage', url, assertions: contract.assertions },
-      { label: 'page-2', url: 'https://books.toscrape.com/catalogue/page-2.html', assertions: contract.assertions },
+      // A second fixture URL was tried here and removed. The collector was created
+      // for the homepage and returns ZERO records for catalogue/page-2.html (the URL
+      // itself is fine -- HTTP 200, 20 product blocks). That made the regression
+      // check fail unconditionally, so the gate could never approve any repair no
+      // matter how good it was. An over-strict gate is as useless as a permissive
+      // one; it just fails in the safe direction.
+      //
+      // A genuine second fixture needs a URL this collector demonstrably handles.
+      // Until one is verified, regression duplicates the live check -- documented as
+      // a limitation rather than papered over with a fixture that always fails.
     ] },
 )
 
