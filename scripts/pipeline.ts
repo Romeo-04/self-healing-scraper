@@ -100,14 +100,24 @@ const heartbeat = setInterval(() => {
 }, HEARTBEAT_MS)
 
 let payload: unknown[]
-if (mode === 'replay') {
+// `heal-dry replay` sources the DETECTION payload from the captured file while still
+// performing a REAL heal against Bright Data. The account's realtime quota only blocks
+// `scraper run`, not `scraper heal`, so this is the only way to exercise the live repair
+// path end to end right now. The drift evidence is genuine either way -- the captured
+// payload IS real collector output.
+const replayPayload = mode === 'replay' || (mode === 'heal-dry' && process.argv[3] === 'replay')
+
+if (replayPayload) {
   // Replay a captured payload instead of calling the collector. Added because the
   // account's realtime page quota is exhausted, which forces the CLI into a batch
   // mode too slow to hold a process open for. The captured file IS real collector
   // output, so extraction, sensing, and persistence are exercised on genuine data;
   // only the network fetch is skipped.
   clearInterval(heartbeat)
-  const replayPath = process.argv[3] ?? 'docs/evidence/2026-08-21-books-toscrape-baseline.json'
+  const replayArg = process.argv[3]
+  const replayPath = (replayArg === undefined || replayArg === 'replay')
+    ? 'docs/evidence/2026-08-21-books-toscrape-baseline.json'
+    : replayArg
   const parsed: unknown = JSON.parse(readFileSync(replayPath, 'utf8'))
   if (!Array.isArray(parsed)) {
     console.error(`replay file ${replayPath} does not contain a JSON array`)
